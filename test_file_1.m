@@ -1,0 +1,125 @@
+    hrtf_path = './CIPIC_hrtf_database/';
+    subject_id = 'subject_003';
+    hrtf_file = fullfile(hrtf_path, subject_id, 'hrir_final.mat');
+    if ~exist(hrtf_file, 'file')
+        error(['HRTF file not found:']);
+    end
+    hrtf_data = load(hrtf_file);
+    
+    roomSideSize = 10;
+    roomCenter = roomSideSize/2;
+    centerToEarDistance = 0.09;
+    
+    Sources = [];
+    
+    sourcesX = 5.2;
+    sourcesY = 5.1;
+    
+    Sources = AddSource(Sources, ...
+        'Type','cardioid', ...
+        'Location',[sourcesX,sourcesY,1.7], ...
+        'Orientation',[180,0,0]);
+    
+    Sources = AddSource(Sources, ...
+        'Type','cardioid', ... 
+        'Location',[sourcesX,sourcesY,1.7], ...
+        'Orientation',[180,0,0]);
+    
+    Sources = AddSource(Sources, ...
+        'Type','cardioid', ...
+        'Location',[sourcesX,sourcesY,1.7], ...
+        'Orientation',[180,0,0]);
+    
+    az = [-80 -65 -55 -45:5:45 55 65 80];
+    el = -45 + 5.625*((1:50)-1);
+    [AZ, EL] = meshgrid(az, el);
+    Direction = [AZ(:), EL(:)];
+    
+    Receivers = [];
+    Receivers = AddReceiver(Receivers, 'Type', 'impulse',...
+        'Location', [roomCenter - centerToEarDistance, roomCenter, 1.7], 'Orientation', [90,0,0], 'Direction', Direction, 'Fs', 44100, 'Response', reshape(hrtf_data.hrir_l, [], size(hrtf_data.hrir_l,3))); % Left ear
+    
+    Receivers = AddReceiver(Receivers, 'Type', 'impulse',...
+        'Location', [roomCenter + centerToEarDistance roomCenter, 1.7], 'Orientation', [270,0,0], 'Direction', Direction, 'Fs', 44100, 'Response', reshape(hrtf_data.hrir_r, [], size(hrtf_data.hrir_r,3))); % Right ear
+    
+    Room = SetupRoom('Dim',[roomSideSize, roomSideSize, 2.5], ...
+        'Freq'      ,[ 100, 200, 400, 800,1600,3200,6400],...
+                           'Absorption',[ 0.6, 0.5, 0.4, 0.3, 0.4, 0.5, 0.6;
+                                          0.7, 0.6, 0.6, 0.3, 0.4, 0.6, 0.7;
+                                          0.6, 0.5, 0.4, 0.3, 0.4, 0.5, 0.6;
+                                          0.7, 0.6, 0.6, 0.3, 0.4, 0.6, 0.7;
+                                          0.5, 0.5, 0.5, 0.4, 0.4, 0.5, 0.6;
+                                          0.7, 0.7, 0.6, 0.5, 0.4, 0.6, 0.7],...
+                           'Scattering',[ 0.5, 0.5, 0.5, 0.5, 0.6, 0.6, 0.6;
+                                          0.5, 0.5, 0.5, 0.5, 0.6, 0.6, 0.6;
+                                          0.5, 0.5, 0.5, 0.5, 0.6, 0.6, 0.6;
+                                          0.5, 0.5, 0.5, 0.5, 0.6, 0.6, 0.6;
+                                          0.8, 0.8, 0.8, 0.8, 0.8, 0.9, 0.9;
+                                          0.5, 0.5, 0.5, 0.5, 0.6, 0.6, 0.6]...
+        );
+     fs_rir = 44100;
+     Options = MCRoomSimOptions('SimSpec',     true,       ...
+                                'SimDiff',     true,       ...
+                                'Duration',    -1,         ...
+                                'Order',       [-1,-1,-1], ...
+                                'Fs', fs_rir ...
+                                );
+    
+    RIR = RunMCRoomSim(Sources,Receivers,Room,Options);
+    
+    % File names
+    files = {
+        'source1.wav'
+        'source2.wav'
+        'source3.wav'
+    };
+    
+    % RIR sampling rate
+    signals = cell(3,1);
+    
+    for k = 1:3
+        % Load audio
+        [x, fs] = audioread(files{k});
+    
+        % Convert to mono if needed
+        if size(x,2) > 1
+            x = mean(x, 2);
+        end
+    
+        % Resample to RIR sampling rate
+        if fs ~= fs_rir
+            x = resample(x, fs_rir, fs);
+        end
+    
+        signals{k} = x;
+    end
+    
+    % Find shortest length
+    minLen = min(cellfun(@length, signals));
+    
+    % Trim all signals
+    for k = 1:3
+        signals{k} = signals{k}(1:minLen);
+    end
+    
+    % Assign outputs
+    s1 = signals{1};
+    s2 = signals{2};
+    s3 = signals{3};
+    
+    % LEFT ear
+    yL1 = fftfilt(RIR{1,1}, s1);
+    yL2 = fftfilt(RIR{1,2}, s2);
+    yL3 = fftfilt(RIR{1,3}, s3);
+    
+    % RIGHT ear
+    yR1 = fftfilt(RIR{2,1}, s1);
+    yR2 = fftfilt(RIR{2,2}, s2);
+    yR3 = fftfilt(RIR{2,3}, s3);
+    
+     yL = yL1 + yL2 + yL3;
+     yR = yR1 + yR2 + yR3;
+     %yL = yL2;
+     %yR = yR2;
+    y_stereo = [yL yR];
+    audiowrite("binaural.wav", y_stereo, fs_rir);

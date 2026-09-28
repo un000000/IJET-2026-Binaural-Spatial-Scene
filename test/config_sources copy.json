@@ -1,0 +1,24 @@
+{
+  "source_config": {
+    "arc_radii": [1.5],
+    "arc_angles": [5],
+    "height": 1.7,
+    "comment": "Arc center is always in front/back of room center at specified radius"
+  },
+  "arc_configurations": {
+    "comment": "Which arcs to generate: front_only, back_only, front_and_back",
+    "modes": ["FB", "BF", "FF"]
+  },
+  "audio_files": {
+    "comment": "Path to directory containing source audio files. Files should be named source1.wav, source2.wav, etc.",
+    "directory": "./processed_audio/",
+    "max_sources": 35,
+    "file_pattern": "source{}.wav",
+    "comment2": "Files will be mapped to characters: a-z (26), then 1-9 (9) = 35 total"
+  },
+  "output_config": {
+    "output_directory": "./generated_audio/",
+    "normalization_target_lufs": -14.0,
+    "comment": "EBU R128 standard for broadcast"
+  }
+}

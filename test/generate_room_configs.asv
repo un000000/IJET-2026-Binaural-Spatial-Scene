@@ -1,0 +1,103 @@
+    function [room_configs] = generate_room_configs(config_file)
+    % GENERATE_ROOM_CONFIGS Generate all room and receiver configurations
+    %
+    % Input:
+    %   config_file - path to JSON configuration file
+    %
+    % Output:
+    %   room_configs - struct array with fields:
+    %       .Room - MCRoomSim Room structure
+    %       .Receivers - MCRoomSim Receivers array
+    %       .dimensions - [width, depth, height]
+    %       .center - [x, y, z] room center
+    %       .reverb_id - reverb profile identifier
+    
+    % Read configuration
+    config = jsondecode(fileread(config_file));
+    
+    % Extract parameters
+    room_sizes = config.room_dimensions.sizes;
+    reverb_profiles = fieldnames(config.reverb_profiles.profiles);
+    frequencies = config.reverb_profiles.frequencies;
+    ear_separation = config.receiver_config.ear_separation;
+    receiver_height = config.receiver_config.height;
+    
+    % Calculate total number of configurations
+    num_rooms = length(room_sizes);
+    num_reverbs = length(reverb_profiles);
+    total_configs = num_rooms * num_reverbs;
+    
+    fprintf('Generating %d room configurations (%d sizes x %d reverb profiles)...\n', ...
+            total_configs, num_rooms, num_reverbs);
+    
+    % Pre-allocate output structure
+    room_configs = struct('Room', {}, 'Receivers', {}, 'dimensions', {}, ...
+                          'center', {}, 'reverb_id', {});
+    
+    config_idx = 1;
+    
+        hrtf_path = './CIPIC_hrtf_database/';
+        subject_id = 'subject_003';
+        hrtf_file = fullfile(hrtf_path, subject_id, 'hrir_final.mat');
+        if ~exist(hrtf_file, 'file')
+            error(['HRTF file not found:']);
+        end
+        hrtf_data = load(hrtf_file);
+        az = [-80 -65 -55 -45:5:45 55 65 80];
+        el = -45 + 5.625*((1:50)-1);
+        [AZ, EL] = meshgrid(az, el);
+        Direction = [AZ(:), EL(:)];
+    
+    % Loop through all combinations
+    for room_idx = 1:num_rooms
+        dims = room_sizes(room_idx, :);
+        width = dims(1);
+        depth = dims(2);
+        height = dims(3);
+        
+        % Calculate room center
+        center_x = width / 2;
+        center_y = depth / 2;
+        center_z = receiver_height;
+        
+        % Receiver positions (left and right ear)
+        left_ear = [center_x - ear_separation/2, center_y, center_z];
+        right_ear = [center_x + ear_separation/2, center_y, center_z];
+        
+        % Create receivers (same for all reverb profiles)
+        Receivers = [];
+            Receivers = AddReceiver(Receivers, 'Type', 'impulse',...
+            'Location', left_ear, 'Orientation', [90,0,0], 'Direction', Direction, 'Fs', 44100, 'Response', reshape(hrtf_data.hrir_l, [], size(hrtf_data.hrir_l,3))); % Left ear
+        
+        Receivers = AddReceiver(Receivers, 'Type', 'impulse',...
+            'Location', right_ear, 'Orientation', [270,0,0], 'Direction', Direction, 'Fs', 44100, 'Response', reshape(hrtf_data.hrir_r, [], size(hrtf_data.hrir_r,3))); % Right ear
+        
+        % Loop through reverb profiles
+        for reverb_idx = 1:num_reverbs
+            reverb_id = reverb_profiles{reverb_idx};
+            reverb_data = config.reverb_profiles.profiles.(reverb_id);
+            
+            % Extract absorption and scattering matrices
+            absorption = reverb_data.absorption;
+            scattering = reverb_data.scattering;
+            
+            % Create room
+            Room = SetupRoom('Dim', [width, depth, height], ...
+                            'Freq', frequencies, ...
+                            'Absorption', absorption, ...
+                            'Scattering', scattering);
+            
+            % Store configuration
+            room_configs(config_idx).Room = Room;
+            room_configs(config_idx).Receivers = Receivers;
+            room_configs(config_idx).dimensions = [width, depth, height];
+            room_configs(config_idx).center = [center_x, center_y, center_z];
+            room_configs(config_idx).reverb_id = reverb_id;
+            
+            config_idx = config_idx + 1;
+        end
+    end
+    
+    fprintf('Generated %d room configurations successfully.\n', length(room_configs));
+    
+    end
